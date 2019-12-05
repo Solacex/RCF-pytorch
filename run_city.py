@@ -23,18 +23,19 @@ from functions import  cross_entropy_loss_RCF, SGD_caffe
 from torch.utils.data import DataLoader, sampler
 from utils import Logger, Averagvalue, save_checkpoint, load_vgg16pretrain
 from os.path import join, split, isdir, isfile, splitext, split, abspath, dirname
-
+from data.dataset import *
+from tqdm import tqdm
 parser = argparse.ArgumentParser(description='PyTorch Training')
 parser.add_argument('--batch_size', default=1, type=int, metavar='BT',
                     help='batch size')
 # =============== optimizer
-parser.add_argument('--lr', '--learning_rate', default=1e-6, type=float,
+parser.add_argument('--lr', '--learning_rate', default=1e-8, type=float,
                     metavar='LR', help='initial learning rate')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
 parser.add_argument('--weight_decay', '--wd', default=2e-4, type=float,
                     metavar='W', help='default weight decay')
-parser.add_argument('--stepsize', default=3, type=int, 
+parser.add_argument('--stepsize', default=7, type=int, 
                     metavar='SS', help='learning rate step size')
 parser.add_argument('--gamma', '--gm', default=0.1, type=float,
                     help='learning rate decay parameter: Gamma')
@@ -45,7 +46,7 @@ parser.add_argument('--itersize', default=10, type=int,
 # =============== misc
 parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('--print_freq', '-p', default=1000, type=int,
+parser.add_argument('--print_freq', '-p', default=10, type=int,
                     metavar='N', help='print frequency (default: 50)')
 parser.add_argument('--gpu', default='0', type=str,
                     help='GPU ID')
@@ -53,7 +54,8 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('--tmp', help='tmp folder', default='tmp/RCF')
 # ================ dataset
-parser.add_argument('--dataset', help='root folder of dataset', default='./data/HED-BSDS')
+parser.add_argument('--dataset', help='root folder of dataset', default='cityscapes')
+
 args = parser.parse_args()
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"   # see issue #152
@@ -67,18 +69,19 @@ print('***', args.lr)
 def main():
     args.cuda = True
     # dataset
-    train_dataset = BSDS_RCFLoader(root=args.dataset, split="train")
-    test_dataset = BSDS_RCFLoader(root=args.dataset, split="test")
-    train_loader = DataLoader(
-        train_dataset, batch_size=args.batch_size,
-        num_workers=8, drop_last=True,shuffle=True)
-    test_loader = DataLoader(
-        test_dataset, batch_size=args.batch_size,
-        num_workers=8, drop_last=True,shuffle=False)
-    with open('data/HED-BSDS/test.lst', 'r') as f:
+    #train_loader = DataLoader(
+     #   train_dataset, batch_size=args.batch_size,
+      #  num_workers=8, drop_last=True,shuffle=True)
+   # test_loader = DataLoader(
+    #    test_dataset, batch_size=args.batch_size,
+     #   num_workers=8, drop_last=True,shuffle=False)
+    train_loader = get_hed_dataset(args.batch_size, args.dataset)
+    test_loader = get_hed_test_dataset(args.batch_size)
+    with open('/home/guangrui/segmentation_DA/dataset/cityscapes_list/val.txt', 'r') as f:
         test_list = f.readlines()
     test_list = [split(i.rstrip())[1] for i in test_list]
     assert len(test_list) == len(test_loader), "%d vs %d" % (len(test_list), len(test_loader))
+    
 
     # model
     model = RCF()
@@ -204,14 +207,14 @@ def main():
     for epoch in range(args.start_epoch, args.maxepoch):
         if epoch == 0:
             print("Performing initial testing...")
-            #multiscale_test(model, test_loader, epoch=epoch, test_list=test_list,
-             #    save_dir = join(TMP_DIR, 'initial-testing-record'))
+            multiscale_test(model, test_loader, epoch=epoch, test_list=test_list,
+                 save_dir = join(TMP_DIR, 'initial-testing-record'))
 
         tr_avg_loss, tr_detail_loss = train(
             train_loader, model, optimizer, epoch,
             save_dir = join(TMP_DIR, 'epoch-%d-training-record' % epoch))
-        test(model, test_loader, epoch=epoch, test_list=test_list,
-            save_dir = join(TMP_DIR, 'epoch-%d-testing-record-view' % epoch))
+#        test(model, test_loader, epoch=epoch, test_list=test_list,
+ #           save_dir = join(TMP_DIR, 'epoch-%d-testing-record-view' % epoch))
         multiscale_test(model, test_loader, epoch=epoch, test_list=test_list,
             save_dir = join(TMP_DIR, 'epoch-%d-testing-record' % epoch))
         log.flush() # write log
@@ -265,13 +268,13 @@ def train(train_loader, model, optimizer, epoch, save_dir):
                    'Loss {loss.val:f} (avg:{loss.avg:f}) '.format(
                        loss=losses)
             print(info)
-            label_out = torch.eq(label, 1).float()
-            outputs.append(label_out)
-            _, _, H, W = outputs[0].shape
-            all_results = torch.zeros((len(outputs), 1, H, W))
-            for j in range(len(outputs)):
-                all_results[j, 0, :, :] = outputs[j][0, 0, :, :]
-            torchvision.utils.save_image(1-all_results, join(save_dir, "iter-%d.jpg" % i))
+       #     label_out = torch.eq(label, 1).float()
+        #    outputs.append(label_out)
+#            _, _, H, W = outputs[0].shape
+ #           all_results = torch.zeros((len(outputs), 1, H, W))
+  #          for j in range(len(outputs)):
+   #             all_results[j, 0, :, :] = outputs[j][0,  :, :]
+    #        torchvision.utils.save_image(1-all_results, join(save_dir, "iter-%d.jpg" % i))
         # save checkpoint
     save_checkpoint({
         'epoch': epoch,
@@ -285,34 +288,35 @@ def test(model, test_loader, epoch, test_list, save_dir):
     model.eval()
     if not isdir(save_dir):
         os.makedirs(save_dir)
-    for idx, image in enumerate(test_loader):
+    for idx, image in tqdm(enumerate(test_loader)):
+        image = image[0]
         image = image.cuda()
         _, _, H, W = image.shape
         results = model(image)
         result = torch.squeeze(results[-1].detach()).cpu().numpy()
         results_all = torch.zeros((len(results), 1, H, W))
         for i in range(len(results)):
-          results_all[i, 0, :, :] = results[i]
+            results_all[i, 0, :, :] = results[i]
         filename = splitext(test_list[idx])[0]
         torchvision.utils.save_image(1-results_all, join(save_dir, "%s.jpg" % filename))
-        result = Image.fromarray((result * 255).astype(np.uint8))
-        result.save(join(save_dir, "%s.png" % filename))
-        print("Running test [%d/%d]" % (idx + 1, len(test_loader)))
+  #      result = Image.fromarray((result * 255).astype(np.uint8))
+   #     result.save(join(save_dir, "%s.png" % filename))
 # torch.nn.functional.upsample(input, size=None, scale_factor=None, mode='nearest', align_corners=None)
 def multiscale_test(model, test_loader, epoch, test_list, save_dir):
     model.eval()
     if not isdir(save_dir):
         os.makedirs(save_dir)
     scale = [0.5, 1, 1.5]
-    for idx, image in enumerate(test_loader):
+    for idx, image in tqdm(enumerate(test_loader)):
         image = image[0]
+        image = image.squeeze()
         image_in = image.numpy().transpose((1,2,0))
         _, H, W = image.shape
         multi_fuse = np.zeros((H, W), np.float32)
         for k in range(0, len(scale)):
             im_ = cv2.resize(image_in, None, fx=scale[k], fy=scale[k], interpolation=cv2.INTER_LINEAR)
             im_ = im_.transpose((2,0,1))
-            results = model(torch.unsqueeze(torch.from_numpy(im_).cuda(), 0))
+            results = model(torch.unsqueeze(torch.from_numpy(im_).cuda().float(), 0))
             result = torch.squeeze(results[-1].detach()).cpu().numpy()
             fuse = cv2.resize(result, (W, H), interpolation=cv2.INTER_LINEAR)
             multi_fuse += fuse
@@ -322,9 +326,8 @@ def multiscale_test(model, test_loader, epoch, test_list, save_dir):
         filename = splitext(test_list[idx])[0]
         result_out = Image.fromarray(((1-multi_fuse) * 255).astype(np.uint8))
         result_out.save(join(save_dir, "%s.jpg" % filename))
-        result_out_test = Image.fromarray((multi_fuse * 255).astype(np.uint8))
-        result_out_test.save(join(save_dir, "%s.png" % filename))
-        print("Running test [%d/%d]" % (idx + 1, len(test_loader)))
+#        result_out_test = Image.fromarray((multi_fuse * 255).astype(np.uint8))
+ #       result_out_test.save(join(save_dir, "%s.png" % filename))
 
 def weights_init(m):
     if isinstance(m, nn.Conv2d):

@@ -28,7 +28,7 @@ class BSDS_RCFLoader(data.Dataset):
         self.split = split
         self.transform = transform
         if self.split == 'train':
-            self.filelist = join(self.root, 'bsds_pascal_train_pair.lst')
+            self.filelist = join(self.root, 'train_pair.lst')
         elif self.split == 'test':
             self.filelist = join(self.root, 'test.lst')
         else:
@@ -57,6 +57,7 @@ class BSDS_RCFLoader(data.Dataset):
         if self.split == "train":
             img = np.array(cv2.imread(join(self.root, img_file)), dtype=np.float32)
             img = prepare_image_cv2(img)
+            print(np.max(img), np.min(img))
             return img, lb
         else:
             img = np.array(Image.open(join(self.root, img_file)), dtype=np.float32)
