@@ -1,1 +1,16 @@
 tmp/
+*.png
+*.jpg
+*.mat
+*$py.class
+*.pth
+*.png
+*.pyc
+*.txt
+*.csv
+*.tar
+*.zip
+*.tar.gz
+*.json
+*.ipynb
+
